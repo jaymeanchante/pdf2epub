@@ -397,6 +397,29 @@ html, body, #root {
   color: #fff;
 }
 
+.text-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.download-epub-btn {
+  font-size: 0.78em;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #28a745;
+  background: transparent;
+  color: #28a745;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.download-epub-btn:hover {
+  background: #28a745;
+  color: #fff;
+}
+
 .page-text-editor {
   width: 100%;
   height: auto;
@@ -592,6 +615,16 @@ html, body, #root {
 
   .original-extraction-btn:hover {
     background: #4a7ad8;
+    color: #fff;
+  }
+
+  .download-epub-btn {
+    border-color: #3dba5a;
+    color: #3dba5a;
+  }
+
+  .download-epub-btn:hover {
+    background: #3dba5a;
     color: #fff;
   }
 

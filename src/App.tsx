@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import epub from "epub-gen-memory/bundle";
 import "./App.css";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -53,6 +54,28 @@ function App() {
       delete next[fileId];
       return next;
     });
+  }, []);
+
+  const downloadEpub = useCallback(async (file: FileHistoryItem, pages: string[], metadata: { title: string; author: string }) => {
+    const chapters = pages.map((pageText, index) => ({
+      title: `Page ${index + 1}`,
+      content: `<p>${pageText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "</p><p>")}</p>`,
+    }));
+
+    const blob = await epub(
+      {
+        title: metadata.title || file.title,
+        author: metadata.author || "Unknown",
+      },
+      chapters
+    );
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${metadata.title || file.title}.epub`;
+    a.click();
+    URL.revokeObjectURL(url);
   }, []);
 
   const extractTextFromPdf = async (file: File): Promise<string[]> => {
@@ -328,15 +351,34 @@ function App() {
               <div className="text-panel">
                 <div className="text-panel-header">
                   <span>Extracted Text</span>
-                  {!isExtracting && currentFile.extractedText.length > 0 && editedTexts[currentFile.id] && (
-                    <button
-                      className="original-extraction-btn"
-                      onClick={() => resetToOriginal(currentFile.id)}
-                      title="Reset to original extracted text"
-                    >
-                      Original Extraction
-                    </button>
-                  )}
+                  <div className="text-panel-header-actions">
+                    {!isExtracting && currentFile.extractedText.length > 0 && (
+                      <button
+                        className="download-epub-btn"
+                        onClick={() =>
+                          downloadEpub(
+                            currentFile,
+                            editedTexts[currentFile.id] ?? currentFile.extractedText,
+                            {
+                              title: bookMetadata[currentFile.id]?.title ?? currentFile.title,
+                              author: bookMetadata[currentFile.id]?.author ?? "",
+                            }
+                          )
+                        }
+                      >
+                        ⬇️ Epub
+                      </button>
+                    )}
+                    {!isExtracting && currentFile.extractedText.length > 0 && editedTexts[currentFile.id] && (
+                      <button
+                        className="original-extraction-btn"
+                        onClick={() => resetToOriginal(currentFile.id)}
+                        title="Reset to original extracted text"
+                      >
+                        Original Extraction
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="text-content">
                   {isExtracting ? (
