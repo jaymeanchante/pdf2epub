@@ -23,8 +23,20 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [editedTexts, setEditedTexts] = useState<Record<string, string[]>>({});
+  const [bookMetadata, setBookMetadata] = useState<Record<string, { title: string; author: string }>>({});
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleMetadataChange = useCallback((fileId: string, field: "title" | "author", value: string, defaultTitle: string) => {
+    setBookMetadata((prev) => ({
+      ...prev,
+      [fileId]: {
+        title: prev[fileId]?.title ?? defaultTitle,
+        author: prev[fileId]?.author ?? "",
+        [field]: value,
+      },
+    }));
+  }, []);
 
   const handlePageTextChange = useCallback((fileId: string, pageIndex: number, value: string, originalPages: string[]) => {
     setEditedTexts((prev) => {
@@ -259,11 +271,33 @@ function App() {
         </header>
         <div className="upload-section">
           {currentFile ? (
-            <div className="current-file-header">
-              <span className="current-file-title">{currentFile.title}</span>
-              <button className="remove-file-btn" onClick={removeCurrentFile}>
-                X
-              </button>
+            <div className="file-meta-row">
+              <div className="file-meta-left">
+                <span className="current-file-title">{currentFile.title}</span>
+                <button className="remove-file-btn" onClick={removeCurrentFile}>X</button>
+              </div>
+              <div className="file-meta-right">
+                <div className="meta-field">
+                  <label className="meta-label">Title</label>
+                  <input
+                    className="meta-input"
+                    type="text"
+                    value={bookMetadata[currentFile.id]?.title ?? currentFile.title}
+                    onChange={(e) => handleMetadataChange(currentFile.id, "title", e.target.value, currentFile.title)}
+                    placeholder="Book title"
+                  />
+                </div>
+                <div className="meta-field">
+                  <label className="meta-label">Author</label>
+                  <input
+                    className="meta-input"
+                    type="text"
+                    value={bookMetadata[currentFile.id]?.author ?? ""}
+                    onChange={(e) => handleMetadataChange(currentFile.id, "author", e.target.value, currentFile.title)}
+                    placeholder="Author name"
+                  />
+                </div>
+              </div>
             </div>
           ) : (
             <div
