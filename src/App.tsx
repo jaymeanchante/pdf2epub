@@ -22,8 +22,26 @@ function App() {
   const [currentFile, setCurrentFile] = useState<FileHistoryItem | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [editedTexts, setEditedTexts] = useState<Record<string, string[]>>({});
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePageTextChange = useCallback((fileId: string, pageIndex: number, value: string, originalPages: string[]) => {
+    setEditedTexts((prev) => {
+      const current = prev[fileId] ?? [...originalPages];
+      const updated = [...current];
+      updated[pageIndex] = value;
+      return { ...prev, [fileId]: updated };
+    });
+  }, []);
+
+  const resetToOriginal = useCallback((fileId: string) => {
+    setEditedTexts((prev) => {
+      const next = { ...prev };
+      delete next[fileId];
+      return next;
+    });
+  }, []);
 
   const extractTextFromPdf = async (file: File): Promise<string[]> => {
     const arrayBuffer = await file.arrayBuffer();
@@ -276,15 +294,44 @@ function App() {
               <div className="text-panel">
                 <div className="text-panel-header">
                   <span>Extracted Text</span>
+                  {!isExtracting && currentFile.extractedText.length > 0 && editedTexts[currentFile.id] && (
+                    <button
+                      className="original-extraction-btn"
+                      onClick={() => resetToOriginal(currentFile.id)}
+                      title="Reset to original extracted text"
+                    >
+                      Original Extraction
+                    </button>
+                  )}
                 </div>
                 <div className="text-content">
                   {isExtracting ? (
                     <p className="extracting">Extracting text...</p>
                   ) : currentFile.extractedText.length > 0 ? (
-                    currentFile.extractedText.map((pageText, index) => (
+                    (editedTexts[currentFile.id] ?? currentFile.extractedText).map((pageText, index) => (
                       <div key={index} className="text-page">
                         <div className="page-marker">Page {index + 1}</div>
-                        <p>{pageText}</p>
+                        <textarea
+                          className="page-text-editor"
+                          value={pageText}
+                          onChange={(e) => {
+                            e.target.style.height = "auto";
+                            e.target.style.height = e.target.scrollHeight + "px";
+                            handlePageTextChange(
+                              currentFile.id,
+                              index,
+                              e.target.value,
+                              currentFile.extractedText
+                            );
+                          }}
+                          ref={(el) => {
+                            if (el) {
+                              el.style.height = "auto";
+                              el.style.height = el.scrollHeight + "px";
+                            }
+                          }}
+                          spellCheck={false}
+                        />
                       </div>
                     ))
                   ) : (

@@ -313,6 +313,55 @@ html, body, #root {
   border-bottom: 1px solid #e0e0e0;
   font-weight: 600;
   color: #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.original-extraction-btn {
+  font-size: 0.78em;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #396cd8;
+  background: transparent;
+  color: #396cd8;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.original-extraction-btn:hover {
+  background: #396cd8;
+  color: #fff;
+}
+
+.page-text-editor {
+  width: 100%;
+  height: auto;
+  field-sizing: content;
+  resize: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: transparent;
+  color: inherit;
+  transition: border-color 0.2s, background 0.2s;
+  outline: none;
+  overflow: hidden;
+}
+
+.page-text-editor:hover {
+  border-color: #d0d0d0;
+}
+
+.page-text-editor:focus {
+  border-color: #396cd8;
+  background: #f8f9ff;
 }
 
 .text-content {
@@ -458,6 +507,29 @@ html, body, #root {
     background: #333;
     border-bottom-color: #444;
     color: #f6f6f6;
+  }
+
+  .original-extraction-btn {
+    border-color: #4a7ad8;
+    color: #4a7ad8;
+  }
+
+  .original-extraction-btn:hover {
+    background: #4a7ad8;
+    color: #fff;
+  }
+
+  .page-text-editor {
+    color: #f6f6f6;
+  }
+
+  .page-text-editor:hover {
+    border-color: #444;
+  }
+
+  .page-text-editor:focus {
+    border-color: #4a7ad8;
+    background: #1a2a3a;
   }
 
   .text-page {
