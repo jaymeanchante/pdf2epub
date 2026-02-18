@@ -238,3 +238,7 @@ test-dashboard/
 /flake.nix
 flake.lock
 /default.nix
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
