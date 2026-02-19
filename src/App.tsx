@@ -17,6 +17,10 @@ interface FileHistoryItem {
   file: File;
   url: string;
   extractedText: string[];
+  /** True when this file had no extractable text and uses the VLM image flow */
+  isImageFlow?: boolean;
+  /** 0-based index of last page successfully processed by the VLM (undefined = none yet) */
+  vlmLastPage?: number;
 }
 
 function App() {
@@ -33,6 +37,12 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>("");
+  // VLM image flow state
+  const [vlmLoading, setVlmLoading] = useState(false);
+  const [vlmProgress, setVlmProgress] = useState(0);
+  const [vlmTotal, setVlmTotal] = useState(0);
+  const cancelRequestedRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const { profiles: p, activeProfileId: id } = loadProfiles();
@@ -96,7 +106,7 @@ function App() {
     URL.revokeObjectURL(url);
   }, []);
 
-  const extractTextFromPdf = async (file: File): Promise<string[]> => {
+  const extractTextFromPdf = async (file: File): Promise<{ pages: string[]; hasText: boolean }> => {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const pages: string[] = [];
@@ -110,8 +120,156 @@ function App() {
       pages.push(pageText);
     }
 
-    return pages;
+    // Consider text present only if at least one page has a meaningful amount of text
+    const hasText = pages.some((t) => t.trim().length > 20);
+    return { pages, hasText };
   };
+
+  /** Render a single PDF page to a JPEG data URL */
+  const renderPageAsDataUrl = async (pdfDoc: pdfjsLib.PDFDocumentProxy, pageNum: number): Promise<string> => {
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext("2d")!;
+    await page.render({ canvasContext: context, viewport, canvas }).promise;
+    return canvas.toDataURL("image/jpeg", 0.85);
+  };
+
+  const runImageFlow = useCallback(
+    async (fileItem: FileHistoryItem, startPage: number, activeProfiles: Profile[], activeProfileIdVal: string) => {
+      const activeProfile = activeProfiles.find((p) => p.id === activeProfileIdVal);
+      if (!activeProfile || !activeProfile.baseUrl) {
+        alert("Please configure a VLM provider in Settings before using the image flow.");
+        return;
+      }
+
+      const arrayBuffer = await fileItem.file.arrayBuffer();
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const totalPages = pdfDoc.numPages;
+
+      cancelRequestedRef.current = false;
+      setVlmLoading(true);
+      setVlmTotal(totalPages);
+      setVlmProgress(startPage);
+
+      // Ensure extractedText array has the right length
+      setFileHistory((prev) =>
+        prev.map((f) => {
+          if (f.id !== fileItem.id) return f;
+          const texts = [...f.extractedText];
+          while (texts.length < totalPages) texts.push("");
+          return { ...f, extractedText: texts, isImageFlow: true };
+        })
+      );
+
+      for (let i = startPage; i < totalPages; i++) {
+        if (cancelRequestedRef.current) break;
+
+        let pageText = "";
+        try {
+          const dataUrl = await renderPageAsDataUrl(pdfDoc, i + 1);
+
+          if (cancelRequestedRef.current) break;
+
+          const controller = new AbortController();
+          abortControllerRef.current = controller;
+
+          const response = await fetch(`${activeProfile.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${activeProfile.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: activeProfile.model,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    { type: "image_url", image_url: { url: dataUrl } },
+                    { type: "text", text: activeProfile.prompt },
+                  ],
+                },
+              ],
+              stream: false,
+              max_tokens: 4096,
+            }),
+            signal: controller.signal,
+          });
+
+          if (!response.ok) {
+            throw new Error(`API responded with status ${response.status}`);
+          }
+
+          const data = await response.json();
+          pageText = data.choices?.[0]?.message?.content ?? "";
+        } catch (err: unknown) {
+          if (cancelRequestedRef.current) break;
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Error processing page ${i + 1}:`, err);
+          pageText = `[Error processing page ${i + 1}: ${message}]`;
+        }
+
+        if (cancelRequestedRef.current) break;
+
+        const pageIndex = i;
+        setFileHistory((prev) =>
+          prev.map((f) => {
+            if (f.id !== fileItem.id) return f;
+            const texts = [...f.extractedText];
+            texts[pageIndex] = pageText;
+            return { ...f, extractedText: texts, vlmLastPage: pageIndex };
+          })
+        );
+        // Keep currentFile in sync so buttons update
+        setCurrentFile((prev) => {
+          if (!prev || prev.id !== fileItem.id) return prev;
+          const texts = [...prev.extractedText];
+          texts[pageIndex] = pageText;
+          return { ...prev, extractedText: texts, vlmLastPage: pageIndex };
+        });
+
+        setVlmProgress(i + 1);
+      }
+
+      setVlmLoading(false);
+      cancelRequestedRef.current = false;
+    },
+    []
+  );
+
+  const handleCancelVlm = useCallback(() => {
+    cancelRequestedRef.current = true;
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const handleResumeVlm = useCallback(() => {
+    if (!currentFile?.isImageFlow || vlmLoading) return;
+    const startPage = (currentFile.vlmLastPage ?? -1) + 1;
+    if (startPage >= currentFile.extractedText.length) return;
+    runImageFlow(currentFile, startPage, profiles, activeProfileId);
+  }, [currentFile, vlmLoading, runImageFlow, profiles, activeProfileId]);
+
+  const handleRescanVlm = useCallback(() => {
+    if (!currentFile?.isImageFlow || vlmLoading) return;
+    // Reset extracted text and vlmLastPage, then start from scratch
+    const totalPages = currentFile.extractedText.length;
+    const resetItem: FileHistoryItem = {
+      ...currentFile,
+      extractedText: new Array(totalPages).fill(""),
+      vlmLastPage: undefined,
+    };
+    setFileHistory((prev) => prev.map((f) => (f.id === currentFile.id ? resetItem : f)));
+    setCurrentFile(resetItem);
+    setEditedTexts((prev) => {
+      const next = { ...prev };
+      delete next[currentFile.id];
+      return next;
+    });
+    runImageFlow(resetItem, 0, profiles, activeProfileId);
+  }, [currentFile, vlmLoading, runImageFlow, profiles, activeProfileId]);
 
   useEffect(() => {
     return () => {
@@ -134,7 +292,7 @@ function App() {
     setIsExtracting(true);
 
     try {
-      const extractedText = await extractTextFromPdf(file);
+      const { pages, hasText } = await extractTextFromPdf(file);
 
       const newItem: FileHistoryItem = {
         id: crypto.randomUUID(),
@@ -142,11 +300,18 @@ function App() {
         datetime: new Date(),
         file,
         url: URL.createObjectURL(file),
-        extractedText,
+        extractedText: hasText ? pages : new Array(pages.length).fill(""),
+        isImageFlow: !hasText,
       };
 
       setFileHistory((prev) => [newItem, ...prev]);
       setCurrentFile(newItem);
+
+      if (!hasText) {
+        setIsExtracting(false);
+        runImageFlow(newItem, 0, profiles, activeProfileId);
+        return;
+      }
     } catch (error) {
       console.error("Error extracting text:", error);
       const newItem: FileHistoryItem = {
@@ -163,7 +328,7 @@ function App() {
     } finally {
       setIsExtracting(false);
     }
-  }, [fileHistory]);
+  }, [fileHistory, profiles, activeProfileId, runImageFlow]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -336,6 +501,27 @@ function App() {
               <div className="file-meta-left">
                 <span className="current-file-title">{currentFile.title}</span>
                 <button className="remove-file-btn" onClick={removeCurrentFile}>X</button>
+                {currentFile.isImageFlow && !vlmLoading && (
+                  <>
+                    {(currentFile.vlmLastPage ?? -1) >= 0 &&
+                      (currentFile.vlmLastPage ?? -1) < currentFile.extractedText.length - 1 && (
+                      <button
+                        className="vlm-action-btn vlm-resume-btn"
+                        onClick={handleResumeVlm}
+                        title="Resume VLM processing from where it left off"
+                      >
+                        Resume
+                      </button>
+                    )}
+                    <button
+                      className="vlm-action-btn vlm-rescan-btn"
+                      onClick={handleRescanVlm}
+                      title="Re-process all pages with the VLM from scratch"
+                    >
+                      Rescan
+                    </button>
+                  </>
+                )}
               </div>
               <div className="file-meta-right">
                 <div className="meta-field">
@@ -425,27 +611,31 @@ function App() {
                     (editedTexts[currentFile.id] ?? currentFile.extractedText).map((pageText, index) => (
                       <div key={index} className="text-page">
                         <div className="page-marker">Page {index + 1}</div>
-                        <textarea
-                          className="page-text-editor"
-                          value={pageText}
-                          onChange={(e) => {
-                            e.target.style.height = "auto";
-                            e.target.style.height = e.target.scrollHeight + "px";
-                            handlePageTextChange(
-                              currentFile.id,
-                              index,
-                              e.target.value,
-                              currentFile.extractedText
-                            );
-                          }}
-                          ref={(el) => {
-                            if (el) {
-                              el.style.height = "auto";
-                              el.style.height = el.scrollHeight + "px";
-                            }
-                          }}
-                          spellCheck={false}
-                        />
+                        {currentFile.isImageFlow && pageText === "" ? (
+                          <p className="vlm-page-pending">Waiting for VLM…</p>
+                        ) : (
+                          <textarea
+                            className="page-text-editor"
+                            value={pageText}
+                            onChange={(e) => {
+                              e.target.style.height = "auto";
+                              e.target.style.height = e.target.scrollHeight + "px";
+                              handlePageTextChange(
+                                currentFile.id,
+                                index,
+                                e.target.value,
+                                currentFile.extractedText
+                              );
+                            }}
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = "auto";
+                                el.style.height = el.scrollHeight + "px";
+                              }
+                            }}
+                            spellCheck={false}
+                          />
+                        )}
                       </div>
                     ))
                   ) : (
@@ -457,6 +647,30 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* VLM Image Flow Loading Overlay */}
+      {vlmLoading && (
+        <div className="vlm-overlay">
+          <div className="vlm-overlay-card">
+            <h3 className="vlm-overlay-title">Processing Pages with AI</h3>
+            <p className="vlm-overlay-subtitle">
+              Page {vlmProgress} of {vlmTotal}
+            </p>
+            <div className="vlm-progress-track">
+              <div
+                className="vlm-progress-fill"
+                style={{ width: `${vlmTotal > 0 ? (vlmProgress / vlmTotal) * 100 : 0}%` }}
+              />
+            </div>
+            <p className="vlm-progress-pct">
+              {vlmTotal > 0 ? Math.round((vlmProgress / vlmTotal) * 100) : 0}%
+            </p>
+            <button className="vlm-cancel-btn" onClick={handleCancelVlm}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
