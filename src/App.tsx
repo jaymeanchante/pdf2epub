@@ -252,6 +252,36 @@ function App() {
     runImageFlow(currentFile, startPage, profiles, activeProfileId);
   }, [currentFile, vlmLoading, runImageFlow, profiles, activeProfileId]);
 
+  const handleRescanText = useCallback(async () => {
+    if (!currentFile || currentFile.isImageFlow || isExtracting) return;
+    setIsExtracting(true);
+    try {
+      const { pages, hasText } = await extractTextFromPdf(currentFile.file);
+      const updatedItem: FileHistoryItem = {
+        ...currentFile,
+        extractedText: hasText ? pages : new Array(pages.length).fill(""),
+        isImageFlow: !hasText,
+        vlmLastPage: undefined,
+      };
+      setFileHistory((prev) => prev.map((f) => (f.id === currentFile.id ? updatedItem : f)));
+      setCurrentFile(updatedItem);
+      setEditedTexts((prev) => {
+        const next = { ...prev };
+        delete next[currentFile.id];
+        return next;
+      });
+      if (!hasText) {
+        setIsExtracting(false);
+        runImageFlow(updatedItem, 0, profiles, activeProfileId);
+        return;
+      }
+    } catch (error) {
+      console.error("Error re-extracting text:", error);
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [currentFile, isExtracting, profiles, activeProfileId, runImageFlow]);
+
   const handleRescanVlm = useCallback(() => {
     if (!currentFile?.isImageFlow || vlmLoading) return;
     // Reset extracted text and vlmLastPage, then start from scratch
@@ -521,6 +551,15 @@ function App() {
                       Rescan
                     </button>
                   </>
+                )}
+                {!currentFile.isImageFlow && !isExtracting && (
+                  <button
+                    className="vlm-action-btn vlm-rescan-btn"
+                    onClick={handleRescanText}
+                    title="Re-extract text from PDF"
+                  >
+                    Rescan
+                  </button>
                 )}
               </div>
               <div className="file-meta-right">
