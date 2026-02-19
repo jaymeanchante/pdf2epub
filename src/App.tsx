@@ -23,6 +23,12 @@ interface FileHistoryItem {
   vlmLastPage?: number;
 }
 
+interface ChapterMark {
+  id: string;
+  pageIndex: number;
+  title: string;
+}
+
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [fileHistory, setFileHistory] = useState<FileHistoryItem[]>([]);
@@ -43,6 +49,12 @@ function App() {
   const [vlmTotal, setVlmTotal] = useState(0);
   const cancelRequestedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Chapter marks: fileId -> sorted array of chapter starts
+  const [chapterMarks, setChapterMarks] = useState<Record<string, ChapterMark[]>>({});
+  // Which page is currently showing the inline chapter-title input
+  const [editingChapterPage, setEditingChapterPage] = useState<{ fileId: string; pageIndex: number; draft: string } | null>(null);
+  // Last known cursor position per textarea: "${fileId}-${pageIndex}" -> selectionStart
+  const pageCursorRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const { profiles: p, activeProfileId: id } = loadProfiles();
@@ -84,18 +96,61 @@ function App() {
     });
   }, []);
 
-  const downloadEpub = useCallback(async (file: FileHistoryItem, pages: string[], metadata: { title: string; author: string }) => {
-    const chapters = pages.map((pageText, index) => ({
-      title: `Page ${index + 1}`,
-      content: `<p>${pageText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "</p><p>")}</p>`,
-    }));
+  const downloadEpub = useCallback(async (
+    file: FileHistoryItem,
+    pages: string[],
+    metadata: { title: string; author: string },
+    marks: ChapterMark[]
+  ) => {
+    const escHtml = (t: string) =>
+      t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const pageToHtml = (t: string) =>
+      `<p>${escHtml(t).replace(/\n/g, "</p><p>")}</p>`;
+
+    // Cover page (shown before the Table of Contents)
+    const coverChapter = {
+      title: metadata.title || file.title,
+      content: `<div style="text-align:center;padding-top:30%;"><h1 style="font-size:2em;margin-bottom:0.5em;">${escHtml(metadata.title || file.title)}</h1>${metadata.author ? `<p style="font-size:1.2em;color:#555;">${escHtml(metadata.author)}</p>` : ""}</div>`,
+      beforeToc: true,
+      excludeFromToc: true,
+    };
+
+    let contentChapters: object[];
+    if (marks.length === 0) {
+      // No chapter marks: keep page-by-page structure
+      contentChapters = pages.map((pageText, index) => ({
+        title: `Page ${index + 1}`,
+        content: pageToHtml(pageText),
+      }));
+    } else {
+      const sortedMarks = [...marks].sort((a, b) => a.pageIndex - b.pageIndex);
+      contentChapters = [];
+      // Pages before the first chapter mark become a Preface
+      const firstMarkPage = sortedMarks[0].pageIndex;
+      if (firstMarkPage > 0) {
+        contentChapters.push({
+          title: "Preface",
+          content: pages.slice(0, firstMarkPage).map(pageToHtml).join(""),
+        });
+      }
+      // Each chapter mark groups pages up to the next mark
+      sortedMarks.forEach((mark, i) => {
+        const start = mark.pageIndex;
+        const end = i + 1 < sortedMarks.length ? sortedMarks[i + 1].pageIndex : pages.length;
+        contentChapters.push({
+          title: mark.title || `Chapter ${i + 1}`,
+          content: pages.slice(start, end).map(pageToHtml).join(""),
+        });
+      });
+    }
 
     const blob = await epub(
       {
         title: metadata.title || file.title,
         author: metadata.author || "Unknown",
+        numberChaptersInTOC: marks.length > 0,
       },
-      chapters
+      [coverChapter, ...contentChapters]
     );
 
     const url = URL.createObjectURL(blob);
@@ -300,6 +355,54 @@ function App() {
     });
     runImageFlow(resetItem, 0, profiles, activeProfileId);
   }, [currentFile, vlmLoading, runImageFlow, profiles, activeProfileId]);
+
+  const handleSplitPage = useCallback((fileId: string, pageIndex: number, pages: string[]) => {
+    const key = `${fileId}-${pageIndex}`;
+    const pos = pageCursorRef.current[key] ?? 0;
+    const text = pages[pageIndex] ?? "";
+    if (pos <= 0 || pos >= text.length) {
+      alert("Click inside the text first to place your cursor where you want to split the page.");
+      return;
+    }
+    const before = text.slice(0, pos).trimEnd();
+    const after = text.slice(pos).trimStart();
+    const newPages = [...pages];
+    newPages.splice(pageIndex, 1, before, after);
+    setEditedTexts((prev) => ({ ...prev, [fileId]: newPages }));
+    // Shift all chapter marks that come after the split point
+    setChapterMarks((prev) => ({
+      ...prev,
+      [fileId]: (prev[fileId] ?? []).map((m) =>
+        m.pageIndex > pageIndex ? { ...m, pageIndex: m.pageIndex + 1 } : m
+      ),
+    }));
+  }, []);
+
+  const handleStartEditChapter = useCallback((fileId: string, pageIndex: number, existingTitle: string) => {
+    setEditingChapterPage({ fileId, pageIndex, draft: existingTitle });
+  }, []);
+
+  const handleConfirmChapter = useCallback(() => {
+    if (!editingChapterPage) return;
+    const { fileId, pageIndex, draft } = editingChapterPage;
+    setChapterMarks((prev) => {
+      const marks = prev[fileId] ?? [];
+      if (draft.trim()) {
+        const existing = marks.find((m) => m.pageIndex === pageIndex);
+        if (existing) {
+          return { ...prev, [fileId]: marks.map((m) => m.pageIndex === pageIndex ? { ...m, title: draft.trim() } : m) };
+        }
+        return {
+          ...prev,
+          [fileId]: [...marks, { id: crypto.randomUUID(), pageIndex, title: draft.trim() }]
+            .sort((a, b) => a.pageIndex - b.pageIndex),
+        };
+      }
+      // Empty title removes the chapter mark
+      return { ...prev, [fileId]: marks.filter((m) => m.pageIndex !== pageIndex) };
+    });
+    setEditingChapterPage(null);
+  }, [editingChapterPage]);
 
   useEffect(() => {
     return () => {
@@ -625,7 +728,8 @@ function App() {
                             {
                               title: bookMetadata[currentFile.id]?.title ?? currentFile.title,
                               author: bookMetadata[currentFile.id]?.author ?? "",
-                            }
+                            },
+                            chapterMarks[currentFile.id] ?? []
                           )
                         }
                       >
@@ -646,38 +750,95 @@ function App() {
                 <div className="text-content">
                   {isExtracting ? (
                     <p className="extracting">Extracting text...</p>
-                  ) : currentFile.extractedText.length > 0 ? (
-                    (editedTexts[currentFile.id] ?? currentFile.extractedText).map((pageText, index) => (
-                      <div key={index} className="text-page">
-                        <div className="page-marker">Page {index + 1}</div>
-                        {currentFile.isImageFlow && pageText === "" ? (
-                          <p className="vlm-page-pending">Waiting for VLM…</p>
-                        ) : (
-                          <textarea
-                            className="page-text-editor"
-                            value={pageText}
-                            onChange={(e) => {
-                              e.target.style.height = "auto";
-                              e.target.style.height = e.target.scrollHeight + "px";
-                              handlePageTextChange(
-                                currentFile.id,
-                                index,
-                                e.target.value,
-                                currentFile.extractedText
-                              );
-                            }}
-                            ref={(el) => {
-                              if (el) {
-                                el.style.height = "auto";
-                                el.style.height = el.scrollHeight + "px";
-                              }
-                            }}
-                            spellCheck={false}
-                          />
-                        )}
-                      </div>
-                    ))
-                  ) : (
+                  ) : currentFile.extractedText.length > 0 ? (() => {
+                    const displayPages = editedTexts[currentFile.id] ?? currentFile.extractedText;
+                    const fileMarks = chapterMarks[currentFile.id] ?? [];
+                    return displayPages.map((pageText, index) => {
+                      const chapterMark = fileMarks.find((m) => m.pageIndex === index);
+                      return (
+                        <div key={index} className="text-page">
+                          <div className="page-marker-row">
+                            <div className="page-marker-left">
+                              <span className="page-marker">Page {index + 1}</span>
+                              <button
+                                className="split-page-btn"
+                                onClick={() => handleSplitPage(currentFile.id, index, displayPages)}
+                                title="Split page at cursor position"
+                              >
+                                ✂ Split
+                              </button>
+                            </div>
+                            <div className="page-marker-right">
+                              {editingChapterPage?.fileId === currentFile.id && editingChapterPage.pageIndex === index ? (
+                                <input
+                                  className="chapter-title-input"
+                                  autoFocus
+                                  value={editingChapterPage.draft}
+                                  onChange={(e) => setEditingChapterPage({ ...editingChapterPage, draft: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleConfirmChapter();
+                                    if (e.key === "Escape") setEditingChapterPage(null);
+                                  }}
+                                  onBlur={handleConfirmChapter}
+                                  placeholder="Chapter title…"
+                                />
+                              ) : chapterMark ? (
+                                <span
+                                  className="chapter-badge"
+                                  onClick={() => handleStartEditChapter(currentFile.id, index, chapterMark.title)}
+                                  title="Click to rename or clear (leave blank to remove)"
+                                >
+                                  📖 {chapterMark.title}
+                                </span>
+                              ) : (
+                                <button
+                                  className="add-chapter-btn"
+                                  onClick={() => handleStartEditChapter(currentFile.id, index, "")}
+                                  title="Mark this page as a chapter start"
+                                >
+                                  + Chapter
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {currentFile.isImageFlow && pageText === "" ? (
+                            <p className="vlm-page-pending">Waiting for VLM…</p>
+                          ) : (
+                            <textarea
+                              className="page-text-editor"
+                              value={pageText}
+                              onChange={(e) => {
+                                e.target.style.height = "auto";
+                                e.target.style.height = e.target.scrollHeight + "px";
+                                handlePageTextChange(
+                                  currentFile.id,
+                                  index,
+                                  e.target.value,
+                                  currentFile.extractedText
+                                );
+                              }}
+                              onSelect={(e) => {
+                                pageCursorRef.current[`${currentFile.id}-${index}`] = e.currentTarget.selectionStart;
+                              }}
+                              onMouseUp={(e) => {
+                                pageCursorRef.current[`${currentFile.id}-${index}`] = e.currentTarget.selectionStart;
+                              }}
+                              onKeyUp={(e) => {
+                                pageCursorRef.current[`${currentFile.id}-${index}`] = e.currentTarget.selectionStart;
+                              }}
+                              ref={(el) => {
+                                if (el) {
+                                  el.style.height = "auto";
+                                  el.style.height = el.scrollHeight + "px";
+                                }
+                              }}
+                              spellCheck={false}
+                            />
+                          )}
+                        </div>
+                      );
+                    });
+                  })() : (
                     <p className="no-text">No text could be extracted from this PDF.</p>
                   )}
                 </div>
