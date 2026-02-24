@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import * as pdfjsLib from "pdfjs-dist";
-import epub from "epub-gen-memory/bundle";
+import epub, { type Chapter } from "epub-gen-memory/bundle";
 import "./App.css";
 import { SettingsWindow, loadProfiles, saveSettings } from "./SettingsWindow";
 import type { Profile } from "./SettingsWindow";
@@ -115,7 +115,7 @@ function App() {
       excludeFromToc: true,
     };
 
-    let contentChapters: object[];
+    let contentChapters: Chapter[];
     if (marks.length === 0) {
       // No chapter marks: keep page-by-page structure
       contentChapters = pages.map((pageText, index) => ({
