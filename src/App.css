@@ -425,6 +425,42 @@ html, body, #root {
   color: #fff;
 }
 
+.download-epub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.download-epub-btn.generating {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.download-epub-btn.ready {
+  background: #28a745;
+  color: #fff;
+  border-color: #28a745;
+}
+
+.download-epub-btn:disabled {
+  pointer-events: none;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
 .page-text-editor {
   width: 100%;
   height: auto;
@@ -835,6 +871,17 @@ html, body, #root {
 
   .download-epub-btn:hover {
     background: #3dba5a;
+    color: #fff;
+  }
+
+  .download-epub-btn.generating {
+    border-color: #3dba5a;
+    color: #3dba5a;
+  }
+
+  .download-epub-btn.ready {
+    background: #3dba5a;
+    border-color: #3dba5a;
     color: #fff;
   }
 

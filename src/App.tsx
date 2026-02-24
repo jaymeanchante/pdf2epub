@@ -45,6 +45,7 @@ function App() {
   const [activeProfileId, setActiveProfileId] = useState<string>("");
   // VLM image flow state
   const [vlmLoading, setVlmLoading] = useState(false);
+  const [downloadState, setDownloadState] = useState<"idle" | "generating" | "ready">("idle");
   const [vlmProgress, setVlmProgress] = useState(0);
   const [vlmTotal, setVlmTotal] = useState(0);
   const cancelRequestedRef = useRef(false);
@@ -144,21 +145,28 @@ function App() {
       });
     }
 
-    const blob = await epub(
-      {
-        title: metadata.title || file.title,
-        author: metadata.author || "Unknown",
-        numberChaptersInTOC: marks.length > 0,
-      },
-      [coverChapter, ...contentChapters]
-    );
+    setDownloadState("generating");
+    try {
+      const blob = await epub(
+        {
+          title: metadata.title || file.title,
+          author: metadata.author || "Unknown",
+          numberChaptersInTOC: marks.length > 0,
+        },
+        [coverChapter, ...contentChapters]
+      );
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${metadata.title || file.title}.epub`;
-    a.click();
-    URL.revokeObjectURL(url);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${metadata.title || file.title}.epub`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setDownloadState("ready");
+      setTimeout(() => setDownloadState("idle"), 1000);
+    } catch {
+      setDownloadState("idle");
+    }
   }, []);
 
   const extractTextFromPdf = async (file: File): Promise<{ pages: string[]; hasText: boolean }> => {
@@ -720,7 +728,8 @@ function App() {
                   <div className="text-panel-header-actions">
                     {!isExtracting && currentFile.extractedText.length > 0 && (
                       <button
-                        className="download-epub-btn"
+                        className={`download-epub-btn${downloadState !== "idle" ? ` ${downloadState}` : ""}`}
+                        disabled={downloadState !== "idle"}
                         onClick={() =>
                           downloadEpub(
                             currentFile,
@@ -733,7 +742,13 @@ function App() {
                           )
                         }
                       >
-                        ⬇️ Epub
+                        {downloadState === "generating" ? (
+                          <><span className="btn-spinner" /> Generating…</>
+                        ) : downloadState === "ready" ? (
+                          <>✓ Ready!</>
+                        ) : (
+                          <>⬇️ Epub</>
+                        )}
                       </button>
                     )}
                     {!isExtracting && currentFile.extractedText.length > 0 && editedTexts[currentFile.id] && (
