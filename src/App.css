@@ -76,12 +76,33 @@ html, body, #root {
   font-size: 1.2em;
   margin-bottom: 15px;
   color: #333;
+  text-align: center;
+}
+
+.new-file-btn {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px dashed #396cd8;
+  background: transparent;
+  color: #396cd8;
+  font-size: 0.9em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.new-file-btn:hover {
+  background: #e8f4ff;
 }
 
 .history-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 12px;
 }
 
 .empty-history {
@@ -763,6 +784,23 @@ html, body, #root {
 
   .sidebar-toggle:hover {
     background-color: #444;
+  }
+
+  .sidebar-content h2 {
+    color: #ddd;
+  }
+
+  .new-file-btn {
+    border-color: #4a7ad8;
+    color: #4a7ad8;
+  }
+
+  .new-file-btn:hover {
+    background: #1a2a3a;
+  }
+
+  .history-list {
+    border-top-color: #333;
   }
 
   .history-item {

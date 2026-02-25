@@ -568,6 +568,12 @@ function App() {
         {!sidebarCollapsed && (
           <div className="sidebar-content">
             <h2>History</h2>
+            <button
+              className="new-file-btn"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              + New File
+            </button>
             <div className="history-list">
               {fileHistory.length === 0 ? (
                 <p className="empty-history">No files uploaded yet</p>
