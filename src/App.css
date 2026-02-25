@@ -69,7 +69,13 @@ html, body, #root {
 
 .sidebar-content {
   padding: 20px;
-  overflow: hidden;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: none;
+}
+
+.sidebar-content::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar-content h2 {
