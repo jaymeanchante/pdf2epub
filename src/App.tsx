@@ -641,7 +641,6 @@ function App() {
             <div className="file-meta-row">
               <div className="file-meta-left">
                 <span className="current-file-title">{currentFile.title}</span>
-                <button className="remove-file-btn" onClick={removeCurrentFile}>X</button>
                 {currentFile.isImageFlow && !vlmLoading && (
                   <>
                     {(currentFile.vlmLastPage ?? -1) >= 0 &&
