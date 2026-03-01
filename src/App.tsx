@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import epub, { type Chapter } from "epub-gen-memory/bundle";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import "./App.css";
 import { SettingsWindow, loadProfiles, saveSettings } from "./SettingsWindow";
 import type { Profile } from "./SettingsWindow";
@@ -46,6 +47,7 @@ function App() {
   // VLM image flow state
   const [vlmLoading, setVlmLoading] = useState(false);
   const [downloadState, setDownloadState] = useState<"idle" | "generating" | "ready">("idle");
+  const [pdfDownloadState, setPdfDownloadState] = useState<"idle" | "generating" | "ready">("idle");
   const [vlmProgress, setVlmProgress] = useState(0);
   const [vlmTotal, setVlmTotal] = useState(0);
   const cancelRequestedRef = useRef(false);
@@ -166,6 +168,78 @@ function App() {
       setTimeout(() => setDownloadState("idle"), 1000);
     } catch {
       setDownloadState("idle");
+    }
+  }, []);
+
+  const downloadPdf = useCallback(async (
+    file: FileHistoryItem,
+    pages: string[],
+    metadata: { title: string; author: string },
+  ) => {
+    const pageWidth = 595.28;  // A4
+    const pageHeight = 841.89; // A4
+    const margin = 50;
+    const maxWidth = pageWidth - margin * 2;
+
+    const wrapText = (font: { widthOfTextAtSize(text: string, size: number): number }, text: string, size: number): string[] => {
+      const result: string[] = [];
+      for (const para of text.split("\n")) {
+        if (!para.trim()) { result.push(""); continue; }
+        const words = para.split(" ");
+        let line = "";
+        for (const word of words) {
+          const test = line ? `${line} ${word}` : word;
+          if (font.widthOfTextAtSize(test, size) > maxWidth && line) {
+            result.push(line);
+            line = word;
+          } else {
+            line = test;
+          }
+        }
+        if (line) result.push(line);
+        result.push("");
+      }
+      return result;
+    };
+
+    setPdfDownloadState("generating");
+    try {
+      const pdfDoc = await PDFDocument.create();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+      for (const pageText of pages) {
+        const pdfPage = pdfDoc.addPage([pageWidth, pageHeight]);
+
+        let fontSize = 11;
+        let lines = wrapText(font, pageText, fontSize);
+        while (fontSize > 6 && lines.length * (fontSize * 1.4) > pageHeight - margin * 2) {
+          fontSize -= 0.5;
+          lines = wrapText(font, pageText, fontSize);
+        }
+
+        const lineHeight = fontSize * 1.4;
+        let y = pageHeight - margin;
+        for (const line of lines) {
+          if (y < margin) break;
+          if (line) {
+            pdfPage.drawText(line, { x: margin, y, size: fontSize, font, color: rgb(0, 0, 0) });
+          }
+          y -= lineHeight;
+        }
+      }
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${metadata.title || file.title}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setPdfDownloadState("ready");
+      setTimeout(() => setPdfDownloadState("idle"), 1000);
+    } catch {
+      setPdfDownloadState("idle");
     }
   }, []);
 
@@ -732,29 +806,53 @@ function App() {
                   <span>Extracted Text</span>
                   <div className="text-panel-header-actions">
                     {!isExtracting && currentFile.extractedText.length > 0 && (
-                      <button
-                        className={`download-epub-btn${downloadState !== "idle" ? ` ${downloadState}` : ""}`}
-                        disabled={downloadState !== "idle"}
-                        onClick={() =>
-                          downloadEpub(
-                            currentFile,
-                            editedTexts[currentFile.id] ?? currentFile.extractedText,
-                            {
-                              title: bookMetadata[currentFile.id]?.title ?? currentFile.title,
-                              author: bookMetadata[currentFile.id]?.author ?? "",
-                            },
-                            chapterMarks[currentFile.id] ?? []
-                          )
-                        }
-                      >
-                        {downloadState === "generating" ? (
-                          <><span className="btn-spinner" /> Generating…</>
-                        ) : downloadState === "ready" ? (
-                          <>✓ Ready!</>
-                        ) : (
-                          <>⬇️ Epub</>
-                        )}
-                      </button>
+                      <>
+                        <button
+                          className={`download-epub-btn${downloadState !== "idle" ? ` ${downloadState}` : ""}`}
+                          disabled={downloadState !== "idle"}
+                          onClick={() =>
+                            downloadEpub(
+                              currentFile,
+                              editedTexts[currentFile.id] ?? currentFile.extractedText,
+                              {
+                                title: bookMetadata[currentFile.id]?.title ?? currentFile.title,
+                                author: bookMetadata[currentFile.id]?.author ?? "",
+                              },
+                              chapterMarks[currentFile.id] ?? []
+                            )
+                          }
+                        >
+                          {downloadState === "generating" ? (
+                            <><span className="btn-spinner" /> Generating…</>
+                          ) : downloadState === "ready" ? (
+                            <>✓ Ready!</>
+                          ) : (
+                            <>⬇️ Epub</>
+                          )}
+                        </button>
+                        <button
+                          className={`download-pdf-btn${pdfDownloadState !== "idle" ? ` ${pdfDownloadState}` : ""}`}
+                          disabled={pdfDownloadState !== "idle"}
+                          onClick={() =>
+                            downloadPdf(
+                              currentFile,
+                              editedTexts[currentFile.id] ?? currentFile.extractedText,
+                              {
+                                title: bookMetadata[currentFile.id]?.title ?? currentFile.title,
+                                author: bookMetadata[currentFile.id]?.author ?? "",
+                              }
+                            )
+                          }
+                        >
+                          {pdfDownloadState === "generating" ? (
+                            <><span className="btn-spinner" /> Generating…</>
+                          ) : pdfDownloadState === "ready" ? (
+                            <>✓ Ready!</>
+                          ) : (
+                            <>⬇️ PDF</>
+                          )}
+                        </button>
+                      </>
                     )}
                     {!isExtracting && currentFile.extractedText.length > 0 && editedTexts[currentFile.id] && (
                       <button

@@ -473,6 +473,41 @@ html, body, #root {
   pointer-events: none;
 }
 
+.download-pdf-btn {
+  font-size: 0.78em;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #c0392b;
+  background: transparent;
+  color: #c0392b;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.download-pdf-btn:hover {
+  background: #c0392b;
+  color: #fff;
+}
+
+.download-pdf-btn.generating {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.download-pdf-btn.ready {
+  background: #c0392b;
+  color: #fff;
+  border-color: #c0392b;
+}
+
+.download-pdf-btn:disabled {
+  pointer-events: none;
+}
+
 @keyframes btn-spin {
   to { transform: rotate(360deg); }
 }
@@ -926,6 +961,27 @@ html, body, #root {
   .download-epub-btn.ready {
     background: #3dba5a;
     border-color: #3dba5a;
+    color: #fff;
+  }
+
+  .download-pdf-btn {
+    border-color: #e74c3c;
+    color: #e74c3c;
+  }
+
+  .download-pdf-btn:hover {
+    background: #e74c3c;
+    color: #fff;
+  }
+
+  .download-pdf-btn.generating {
+    border-color: #e74c3c;
+    color: #e74c3c;
+  }
+
+  .download-pdf-btn.ready {
+    background: #e74c3c;
+    border-color: #e74c3c;
     color: #fff;
   }
 
