@@ -592,12 +592,6 @@ function App() {
     [handleFileSelect]
   );
 
-  const removeCurrentFile = useCallback(() => {
-    setCurrentFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  }, []);
 
   const selectHistoryItem = useCallback((item: FileHistoryItem) => {
     setCurrentFile(item);
